@@ -2,31 +2,32 @@ package com.privatemessenger
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import com.privatemessenger.databinding.ActivitySetupBinding
+import com.google.android.material.textfield.TextInputEditText
 
 class SetupActivity : AppCompatActivity() {
-
-    private lateinit var binding: ActivitySetupBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
         applyTheme()
         super.onCreate(savedInstanceState)
 
-        // If already set up, go straight to chat
         if (Prefs.isSetupDone(this)) {
             startChat()
             return
         }
 
-        binding = ActivitySetupBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_setup)
 
-        binding.btnStart.setOnClickListener {
-            val secret = binding.etSecret.text.toString().trim()
-            val name = binding.etName.text.toString().trim()
+        val etName = findViewById<TextInputEditText>(R.id.etName)
+        val etSecret = findViewById<TextInputEditText>(R.id.etSecret)
+        val btnStart = findViewById<Button>(R.id.btnStart)
+
+        btnStart.setOnClickListener {
+            val secret = etSecret.text.toString().trim()
+            val name = etName.text.toString().trim()
 
             if (secret.length < 4) {
                 Toast.makeText(this, "Код должен быть не менее 4 символов", Toast.LENGTH_SHORT).show()

@@ -7,32 +7,39 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.MediaStore
-import android.util.Base64
 import android.view.Menu
 import android.view.MenuItem
-import android.view.View
+import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.privatemessenger.databinding.ActivityChatBinding
+import androidx.recyclerview.widget.RecyclerView
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 import java.io.ByteArrayOutputStream
-import java.io.InputStream
 
 class ChatActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityChatBinding
+    private lateinit var rvMessages: RecyclerView
+    private lateinit var etMessage: EditText
+    private lateinit var btnSend: android.widget.Button
+    private lateinit var btnAttach: android.widget.Button
+    private lateinit var tvStatus: TextView
+
     private lateinit var adapter: MessageAdapter
     private val messages = mutableListOf<Message>()
 
@@ -64,13 +71,30 @@ class ChatActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         applyTheme()
         super.onCreate(savedInstanceState)
-        binding = ActivityChatBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-        setSupportActionBar(binding.toolbar)
+        setContentView(R.layout.activity_chat)
+
+        val toolbar = findViewById<Toolbar>(R.id.toolbar)
+        setSupportActionBar(toolbar)
+
+        rvMessages = findViewById(R.id.rvMessages)
+        etMessage = findViewById(R.id.etMessage)
+        btnSend = findViewById(R.id.btnSend)
+        btnAttach = findViewById(R.id.btnAttach)
+        tvStatus = findViewById(R.id.tvStatus)
 
         setupRecycler()
-        setupButtons()
-        requestPermissions()
+
+        btnSend.setOnClickListener {
+            val text = etMessage.text.toString().trim()
+            if (text.isNotEmpty()) {
+                sendTextMessage(text)
+                etMessage.text.clear()
+            }
+        }
+
+        btnAttach.setOnClickListener { openGallery() }
+
+        requestNotificationPermission()
         startAndBindService()
     }
 
@@ -84,24 +108,10 @@ class ChatActivity : AppCompatActivity() {
 
     private fun setupRecycler() {
         adapter = MessageAdapter(messages)
-        val layoutManager = LinearLayoutManager(this)
-        layoutManager.stackFromEnd = true
-        binding.rvMessages.layoutManager = layoutManager
-        binding.rvMessages.adapter = adapter
-    }
-
-    private fun setupButtons() {
-        binding.btnSend.setOnClickListener {
-            val text = binding.etMessage.text.toString().trim()
-            if (text.isNotEmpty()) {
-                sendTextMessage(text)
-                binding.etMessage.text?.clear()
-            }
-        }
-
-        binding.btnAttach.setOnClickListener {
-            openGallery()
-        }
+        val lm = LinearLayoutManager(this)
+        lm.stackFromEnd = true
+        rvMessages.layoutManager = lm
+        rvMessages.adapter = adapter
     }
 
     private fun setupServiceCallbacks() {
@@ -109,21 +119,18 @@ class ChatActivity : AppCompatActivity() {
             runOnUiThread {
                 messages.add(msg)
                 adapter.notifyItemInserted(messages.size - 1)
-                binding.rvMessages.scrollToPosition(messages.size - 1)
+                rvMessages.scrollToPosition(messages.size - 1)
             }
         }
-
         mqttService?.onAckReceived = { msgId ->
             runOnUiThread {
                 val idx = messages.indexOfFirst { it.id == msgId }
                 if (idx >= 0) {
-                    val updated = messages[idx].copy(status = Message.Status.DELIVERED)
-                    messages[idx] = updated
+                    messages[idx] = messages[idx].copy(status = Message.Status.DELIVERED)
                     adapter.notifyItemChanged(idx)
                 }
             }
         }
-
         mqttService?.onConnectionChanged = { connected ->
             runOnUiThread { updateConnectionStatus(connected) }
         }
@@ -131,37 +138,30 @@ class ChatActivity : AppCompatActivity() {
 
     private fun updateConnectionStatus(connected: Boolean? = null) {
         val isConnected = connected ?: (mqttService?.isConnected() == true)
-        binding.tvStatus.text = if (isConnected) "● Подключено" else "○ Нет соединения"
-        binding.tvStatus.setTextColor(
-            if (isConnected)
-                ContextCompat.getColor(this, R.color.status_connected)
-            else
-                ContextCompat.getColor(this, R.color.status_disconnected)
+        tvStatus.text = if (isConnected) "● Подключено" else "○ Нет соединения"
+        tvStatus.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (isConnected) R.color.status_connected else R.color.status_disconnected
+            )
         )
     }
 
     private fun sendTextMessage(text: String) {
-        val tempMsg = Message(
-            id = "temp_${System.currentTimeMillis()}",
-            text = text,
-            imageBase64 = null,
-            timestamp = System.currentTimeMillis(),
-            isOutgoing = true,
-            status = Message.Status.SENDING
-        )
+        val tempId = "temp_${System.currentTimeMillis()}"
+        val tempMsg = Message(tempId, text, null, System.currentTimeMillis(), true, Message.Status.SENDING)
         messages.add(tempMsg)
         adapter.notifyItemInserted(messages.size - 1)
-        binding.rvMessages.scrollToPosition(messages.size - 1)
+        rvMessages.scrollToPosition(messages.size - 1)
 
         mqttService?.sendMessage(text, null) { success, id ->
             runOnUiThread {
-                val idx = messages.indexOfFirst { it.id == tempMsg.id }
+                val idx = messages.indexOfFirst { it.id == tempId }
                 if (idx >= 0) {
-                    val updated = messages[idx].copy(
+                    messages[idx] = messages[idx].copy(
                         id = id,
                         status = if (success) Message.Status.SENT else Message.Status.SENDING
                     )
-                    messages[idx] = updated
                     adapter.notifyItemChanged(idx)
                 }
             }
@@ -169,110 +169,70 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun sendImage(uri: Uri) {
-        binding.btnSend.isEnabled = false
         Toast.makeText(this, "Отправка фото...", Toast.LENGTH_SHORT).show()
-
         Thread {
             try {
-                val base64 = uriToBase64(uri)
-                val tempMsg = Message(
-                    id = "temp_${System.currentTimeMillis()}",
-                    text = null,
-                    imageBase64 = base64,
-                    timestamp = System.currentTimeMillis(),
-                    isOutgoing = true,
-                    status = Message.Status.SENDING
-                )
+                val stream = contentResolver.openInputStream(uri)!!
+                val bmp = BitmapFactory.decodeStream(stream)
+                stream.close()
+                val scaled = scaleBitmap(bmp, 800)
+                val out = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                val base64 = Base64.encodeToString(out.toByteArray(), Base64.DEFAULT)
+
+                val tempId = "temp_${System.currentTimeMillis()}"
+                val tempMsg = Message(tempId, null, base64, System.currentTimeMillis(), true, Message.Status.SENDING)
                 runOnUiThread {
                     messages.add(tempMsg)
                     adapter.notifyItemInserted(messages.size - 1)
-                    binding.rvMessages.scrollToPosition(messages.size - 1)
-                    binding.btnSend.isEnabled = true
+                    rvMessages.scrollToPosition(messages.size - 1)
                 }
-
                 mqttService?.sendMessage(null, base64) { success, id ->
                     runOnUiThread {
-                        val idx = messages.indexOfFirst { it.id == tempMsg.id }
+                        val idx = messages.indexOfFirst { it.id == tempId }
                         if (idx >= 0) {
-                            val updated = messages[idx].copy(
+                            messages[idx] = messages[idx].copy(
                                 id = id,
                                 status = if (success) Message.Status.SENT else Message.Status.SENDING
                             )
-                            messages[idx] = updated
                             adapter.notifyItemChanged(idx)
                         }
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    binding.btnSend.isEnabled = true
-                    Toast.makeText(this, "Ошибка отправки фото", Toast.LENGTH_SHORT).show()
-                }
+                runOnUiThread { Toast.makeText(this, "Ошибка отправки фото", Toast.LENGTH_SHORT).show() }
             }
         }.start()
     }
 
-    private fun uriToBase64(uri: Uri): String {
-        val inputStream: InputStream = contentResolver.openInputStream(uri)!!
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-        inputStream.close()
-
-        // Resize to max 800px to keep MQTT payload reasonable
-        val scaled = scaleBitmap(bitmap, 800)
-
-        val out = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, 70, out)
-        return Base64.encodeToString(out.toByteArray(), Base64.DEFAULT)
-    }
-
     private fun scaleBitmap(bmp: Bitmap, maxSize: Int): Bitmap {
-        val w = bmp.width
-        val h = bmp.height
+        val w = bmp.width; val h = bmp.height
         if (w <= maxSize && h <= maxSize) return bmp
         val ratio = maxSize.toFloat() / maxOf(w, h)
         return Bitmap.createScaledBitmap(bmp, (w * ratio).toInt(), (h * ratio).toInt(), true)
     }
 
     private fun openGallery() {
-        if (!checkStoragePermission()) {
-            requestStoragePermission()
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(permission), 100)
             return
         }
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        pickImageLauncher.launch(intent)
+        pickImageLauncher.launch(Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI))
     }
 
-    private fun checkStoragePermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) ==
-                    PackageManager.PERMISSION_GRANTED
-        } else {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) ==
-                    PackageManager.PERMISSION_GRANTED
-        }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 100 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) openGallery()
     }
 
-    private fun requestStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_MEDIA_IMAGES), 100)
-        } else {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 100)
-        }
-    }
-
-    private fun requestPermissions() {
+    private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
             }
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 100 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            openGallery()
         }
     }
 
@@ -284,23 +244,17 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (!bound) {
-            bindService(Intent(this, MqttService::class.java), connection, Context.BIND_AUTO_CREATE)
-        }
+        if (!bound) bindService(Intent(this, MqttService::class.java), connection, Context.BIND_AUTO_CREATE)
     }
 
     override fun onStop() {
         super.onStop()
-        if (bound) {
-            unbindService(connection)
-            bound = false
-        }
+        if (bound) { unbindService(connection); bound = false }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.chat_menu, menu)
-        val item = menu.findItem(R.id.action_theme)
-        item.title = if (Prefs.isDarkTheme(this)) "☀ Светлая тема" else "☾ Тёмная тема"
+        menu.findItem(R.id.action_theme).title = if (Prefs.isDarkTheme(this)) "☀ Светлая тема" else "☾ Тёмная тема"
         return true
     }
 
@@ -309,25 +263,21 @@ class ChatActivity : AppCompatActivity() {
             R.id.action_theme -> {
                 val newDark = !Prefs.isDarkTheme(this)
                 Prefs.setDarkTheme(this, newDark)
-                if (newDark) {
-                    AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
-                } else {
-                    AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
-                }
-                recreate()
-                true
+                AppCompatDelegate.setDefaultNightMode(
+                    if (newDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+                )
+                recreate(); true
             }
             R.id.action_reset -> {
                 AlertDialog.Builder(this)
                     .setTitle("Сброс настроек")
-                    .setMessage("Удалить все настройки и вернуться к начальному экрану?")
+                    .setMessage("Вернуться к начальному экрану?")
                     .setPositiveButton("Да") { _, _ ->
                         Prefs.setSetupDone(this, false)
                         startActivity(Intent(this, SetupActivity::class.java))
                         finish()
                     }
-                    .setNegativeButton("Отмена", null)
-                    .show()
+                    .setNegativeButton("Отмена", null).show()
                 true
             }
             else -> super.onOptionsItemSelected(item)
