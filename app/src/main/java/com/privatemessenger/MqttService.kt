@@ -8,12 +8,12 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.os.Binder
 import android.os.IBinder
-import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
-import org.eclipse.paho.client.mqttv3.*
-import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
+import com.hivemq.client.mqtt.MqttClient
+import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
+import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
 import java.util.UUID
 
 class MqttService : Service() {
@@ -23,7 +23,7 @@ class MqttService : Service() {
     }
 
     private val binder = LocalBinder()
-    private var mqttClient: MqttClient? = null
+    private var mqttClient: Mqtt3AsyncClient? = null
     private val gson = Gson()
 
     var onMessageReceived: ((Message) -> Unit)? = null
@@ -32,7 +32,8 @@ class MqttService : Service() {
 
     companion object {
         const val TAG = "MqttService"
-        const val BROKER_URL = "ssl://broker.hivemq.com:8883"
+        const val BROKER_HOST = "broker.hivemq.com"
+        const val BROKER_PORT = 8883
         const val NOTIFICATION_ID = 1
         var isRunning = false
     }
@@ -46,84 +47,77 @@ class MqttService : Service() {
 
     override fun onBind(intent: Intent): IBinder = binder
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
-    }
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
         isRunning = false
-        disconnect()
+        mqttClient?.disconnect()
         super.onDestroy()
     }
 
     private fun buildForegroundNotification(): Notification {
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, ChatActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
+        val pi = PendingIntent.getActivity(
+            this, 0, Intent(this, ChatActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, App.CHANNEL_SERVICE)
             .setContentTitle("Мессенджер активен")
             .setContentText("Ожидание сообщений...")
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(pi)
             .setOngoing(true)
             .build()
     }
 
-    fun connect() {
+    private fun connect() {
         val clientId = "pm_" + UUID.randomUUID().toString().take(8)
-        try {
-            mqttClient = MqttClient(BROKER_URL, clientId, MemoryPersistence())
-            val options = MqttConnectOptions().apply {
-                isCleanSession = true
-                connectionTimeout = 30
-                keepAliveInterval = 60
-                isAutomaticReconnect = true
-                socketFactory = javax.net.ssl.SSLSocketFactory.getDefault()
-            }
-            mqttClient?.setCallback(object : MqttCallback {
-                override fun connectionLost(cause: Throwable?) {
-                    Log.w(TAG, "Connection lost: ${cause?.message}")
+        mqttClient = MqttClient.builder()
+            .useMqttVersion3()
+            .identifier(clientId)
+            .serverHost(BROKER_HOST)
+            .serverPort(BROKER_PORT)
+            .sslWithDefaultConfig()
+            .buildAsync()
+
+        mqttClient?.connect()
+            ?.whenComplete { _, throwable ->
+                if (throwable == null) {
+                    Log.i(TAG, "Connected")
+                    onConnectionChanged?.invoke(true)
+                    subscribeToTopics()
+                } else {
+                    Log.e(TAG, "Connect error: ${throwable.message}")
                     onConnectionChanged?.invoke(false)
                 }
-
-                override fun messageArrived(topic: String, message: MqttMessage) {
-                    handleIncoming(topic, message)
-                }
-
-                override fun deliveryComplete(token: IMqttDeliveryToken?) {}
-            })
-
-            mqttClient?.connect(options)
-            subscribeToTopics()
-            onConnectionChanged?.invoke(true)
-            Log.i(TAG, "Connected to broker")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Connect error: ${e.message}")
-            onConnectionChanged?.invoke(false)
-        }
+            }
     }
 
     private fun subscribeToTopics() {
         val peerTopic = Prefs.getPeerTopic(this)
         val ackTopic = "${Prefs.getMyTopic(this)}/ack"
-        mqttClient?.subscribe(arrayOf(peerTopic, ackTopic), intArrayOf(1, 1))
-        Log.i(TAG, "Subscribed to: $peerTopic, $ackTopic")
+
+        mqttClient?.subscribeWith()
+            ?.topicFilter(peerTopic)
+            ?.callback { publish -> handleIncoming(publish, false) }
+            ?.send()
+
+        mqttClient?.subscribeWith()
+            ?.topicFilter(ackTopic)
+            ?.callback { publish -> handleIncoming(publish, true) }
+            ?.send()
+
+        Log.i(TAG, "Subscribed to: $peerTopic and $ackTopic")
     }
 
-    private fun handleIncoming(topic: String, mqttMessage: MqttMessage) {
+    private fun handleIncoming(publish: Mqtt3Publish, isAck: Boolean) {
         try {
-            val json = String(mqttMessage.payload)
+            val json = String(publish.payloadAsBytes)
             val payload = gson.fromJson(json, MqttPayload::class.java)
 
-            if (topic.endsWith("/ack")) {
+            if (isAck) {
                 onAckReceived?.invoke(payload.id)
                 return
             }
 
-            // Send ACK back
             sendAck(payload.id)
 
             val msg = Message(
@@ -144,57 +138,45 @@ class MqttService : Service() {
 
     private fun sendAck(messageId: String) {
         val ackTopic = "${Prefs.getPeerTopic(this)}/ack"
-        val payload = MqttPayload(
-            id = messageId,
-            text = null,
-            imageBase64 = null,
-            timestamp = System.currentTimeMillis(),
-            type = "ack"
-        )
+        val payload = MqttPayload(messageId, null, null, System.currentTimeMillis(), "ack")
         try {
-            val msg = MqttMessage(gson.toJson(payload).toByteArray())
-            msg.qos = 1
-            mqttClient?.publish(ackTopic, msg)
+            mqttClient?.publishWith()
+                ?.topic(ackTopic)
+                ?.payload(gson.toJson(payload).toByteArray())
+                ?.send()
         } catch (e: Exception) {
-            Log.e(TAG, "ACK send error: ${e.message}")
+            Log.e(TAG, "ACK error: ${e.message}")
         }
     }
 
-    fun sendMessage(text: String?, imageBase64: String?, callback: (Boolean, String) -> Unit): String {
+    fun sendMessage(text: String?, imageBase64: String?, callback: (Boolean, String) -> Unit) {
         val id = UUID.randomUUID().toString()
-        val payload = MqttPayload(
-            id = id,
-            text = text,
-            imageBase64 = imageBase64,
-            timestamp = System.currentTimeMillis(),
-            type = "msg"
-        )
+        val payload = MqttPayload(id, text, imageBase64, System.currentTimeMillis(), "msg")
         val topic = Prefs.getMyTopic(this)
         try {
-            val json = gson.toJson(payload)
-            val msg = MqttMessage(json.toByteArray()).apply { qos = 1 }
-            mqttClient?.publish(topic, msg)
-            callback(true, id)
+            mqttClient?.publishWith()
+                ?.topic(topic)
+                ?.payload(gson.toJson(payload).toByteArray())
+                ?.send()
+                ?.whenComplete { _, throwable ->
+                    callback(throwable == null, id)
+                }
         } catch (e: Exception) {
             Log.e(TAG, "Send error: ${e.message}")
             callback(false, id)
         }
-        return id
     }
 
-    fun isConnected(): Boolean = mqttClient?.isConnected == true
+    fun isConnected(): Boolean = mqttClient?.state?.isConnected == true
 
     private fun showMessageNotification(msg: Message) {
-        val text = when {
-            msg.isImage -> "📷 Фото"
-            else -> msg.text ?: ""
-        }
-        val intent = Intent(this, ChatActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val text = if (msg.isImage) "📷 Фото" else msg.text ?: ""
+        val pi = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, ChatActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
+            PendingIntent.FLAG_IMMUTABLE
+        )
         val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
         val notification = NotificationCompat.Builder(this, App.CHANNEL_MESSAGES)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle("Новое сообщение")
@@ -204,17 +186,6 @@ class MqttService : Service() {
             .setContentIntent(pi)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(2, notification)
-    }
-
-    private fun disconnect() {
-        try {
-            mqttClient?.disconnect()
-            mqttClient?.close()
-        } catch (e: Exception) {
-            Log.e(TAG, "Disconnect error: ${e.message}")
-        }
+        getSystemService(NotificationManager::class.java).notify(2, notification)
     }
 }
