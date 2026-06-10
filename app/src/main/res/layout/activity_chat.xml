@@ -3,8 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="?attr/colorSurface">
+    android:layout_height="match_parent">
 
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"
@@ -19,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:background="?attr/colorPrimary"
-            app:titleTextColor="@android:color/white"
+            app:titleTextColor="#FFFFFF"
             app:title="Чат" />
 
         <TextView
@@ -32,7 +31,7 @@
             android:paddingBottom="4dp"
             android:text="○ Подключение..."
             android:textSize="12sp"
-            android:background="?attr/colorSurfaceVariant" />
+            android:background="#F5F5F5" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -53,13 +52,13 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="8dp"
-        android:background="?attr/colorSurfaceVariant"
+        android:background="#EEEEEE"
         android:gravity="center_vertical"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <com.google.android.material.button.MaterialButton
+        <Button
             android:id="@+id/btnAttach"
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"
@@ -70,7 +69,7 @@
             android:paddingStart="4dp"
             android:paddingEnd="4dp" />
 
-        <com.google.android.material.textfield.TextInputEditText
+        <EditText
             android:id="@+id/etMessage"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -82,7 +81,7 @@
             android:paddingStart="8dp"
             android:paddingEnd="8dp" />
 
-        <com.google.android.material.button.MaterialButton
+        <Button
             android:id="@+id/btnSend"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
