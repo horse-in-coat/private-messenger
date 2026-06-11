@@ -16,11 +16,11 @@ class App : Application() {
     private fun createNotificationChannels() {
         val manager = getSystemService(NotificationManager::class.java)
 
-        // Silent channel for foreground service — hidden from user
+        // IMPORTANCE_NONE — уведомление полностью скрыто из шторки
         val serviceChannel = NotificationChannel(
             CHANNEL_SERVICE,
             "Фоновое соединение",
-            NotificationManager.IMPORTANCE_MIN
+            NotificationManager.IMPORTANCE_NONE
         ).apply {
             setShowBadge(false)
             enableLights(false)
@@ -28,7 +28,6 @@ class App : Application() {
             setSound(null, null)
         }
 
-        // Normal channel for incoming messages
         val msgChannel = NotificationChannel(
             CHANNEL_MESSAGES,
             "Новые сообщения",
