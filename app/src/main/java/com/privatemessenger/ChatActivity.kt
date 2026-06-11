@@ -14,8 +14,8 @@ import android.os.IBinder
 import android.provider.MediaStore
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.Button
 import android.widget.EditText
-import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,8 +36,8 @@ class ChatActivity : AppCompatActivity() {
 
     private lateinit var rvMessages: RecyclerView
     private lateinit var etMessage: EditText
-    private lateinit var btnSend: android.widget.Button
-    private lateinit var btnAttach: android.widget.Button
+    private lateinit var btnSend: Button
+    private lateinit var btnAttach: Button
     private lateinit var tvStatus: TextView
 
     private lateinit var adapter: MessageAdapter
@@ -99,7 +99,9 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun applyTheme() {
-        if (Prefs.isDarkTheme(this)) {
+        if (!Prefs.isThemeSet(this)) {
+            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        } else if (Prefs.isDarkTheme(this)) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         } else {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -200,7 +202,9 @@ class ChatActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread { Toast.makeText(this, "Ошибка отправки фото", Toast.LENGTH_SHORT).show() }
+                runOnUiThread {
+                    Toast.makeText(this, "Ошибка отправки фото", Toast.LENGTH_SHORT).show()
+                }
             }
         }.start()
     }
@@ -254,7 +258,8 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.chat_menu, menu)
-        menu.findItem(R.id.action_theme).title = if (Prefs.isDarkTheme(this)) "☀ Светлая тема" else "☾ Тёмная тема"
+        val isDark = Prefs.isDarkTheme(this)
+        menu.findItem(R.id.action_theme).title = if (isDark) "☀ Светлая тема" else "☾ Тёмная тема"
         return true
     }
 
@@ -262,11 +267,12 @@ class ChatActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.action_theme -> {
                 val newDark = !Prefs.isDarkTheme(this)
-                Prefs.setDarkTheme(this, newDark)
+                Prefs.setDarkThemeWithFlag(this, newDark)
                 AppCompatDelegate.setDefaultNightMode(
                     if (newDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
                 )
-                recreate(); true
+                recreate()
+                true
             }
             R.id.action_reset -> {
                 AlertDialog.Builder(this)
