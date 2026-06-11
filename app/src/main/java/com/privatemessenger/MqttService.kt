@@ -41,8 +41,6 @@ class MqttService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
-        // Foreground service requires a notification by Android rules,
-        // but we make it invisible — no icon, no sound, lowest priority
         startForeground(NOTIFICATION_ID, buildSilentNotification())
         connect()
     }
@@ -63,7 +61,7 @@ class MqttService : Service() {
         return NotificationCompat.Builder(this, App.CHANNEL_SERVICE)
             .setContentTitle("Мессенджер")
             .setContentText("")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(pi)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
@@ -72,7 +70,8 @@ class MqttService : Service() {
     }
 
     private fun connect() {
-        val clientId = "pm_" + UUID.randomUUID().toString().take(8)
+        val clientId = "pm_" + Prefs.getMyTopic(this).replace("/", "_")
+
         mqttClient = MqttClient.builder()
             .useMqttVersion3()
             .identifier(clientId)
@@ -81,10 +80,13 @@ class MqttService : Service() {
             .sslWithDefaultConfig()
             .buildAsync()
 
-        mqttClient?.connect()
+        mqttClient?.connectWith()
+            ?.cleanSession(false)
+            ?.keepAlive(60)
+            ?.send()
             ?.whenComplete { _, throwable ->
                 if (throwable == null) {
-                    Log.i(TAG, "Connected")
+                    Log.i(TAG, "Connected, clientId=$clientId")
                     onConnectionChanged?.invoke(true)
                     subscribeToTopics()
                 } else {
@@ -154,7 +156,9 @@ class MqttService : Service() {
         val topic = Prefs.getMyTopic(this)
         try {
             mqttClient?.publishWith()?.topic(topic)
-                ?.payload(gson.toJson(payload).toByteArray())?.send()
+                ?.payload(gson.toJson(payload).toByteArray())
+                ?.retain(false)
+                ?.send()
                 ?.whenComplete { _, throwable -> callback(throwable == null, id) }
         } catch (e: Exception) {
             Log.e(TAG, "Send error: ${e.message}")
@@ -173,7 +177,7 @@ class MqttService : Service() {
         )
         val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val notification = NotificationCompat.Builder(this, App.CHANNEL_MESSAGES)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("Новое сообщение")
             .setContentText(text)
             .setAutoCancel(true)
