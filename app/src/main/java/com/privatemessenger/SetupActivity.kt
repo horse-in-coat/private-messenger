@@ -46,7 +46,9 @@ class SetupActivity : AppCompatActivity() {
     }
 
     private fun applyTheme() {
-        if (Prefs.isDarkTheme(this)) {
+        if (!Prefs.isThemeSet(this)) {
+            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        } else if (Prefs.isDarkTheme(this)) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         } else {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
