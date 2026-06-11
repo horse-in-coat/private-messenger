@@ -14,8 +14,8 @@ import android.os.IBinder
 import android.provider.MediaStore
 import android.view.Menu
 import android.view.MenuItem
-import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,8 +36,8 @@ class ChatActivity : AppCompatActivity() {
 
     private lateinit var rvMessages: RecyclerView
     private lateinit var etMessage: EditText
-    private lateinit var btnSend: Button
-    private lateinit var btnAttach: Button
+    private lateinit var btnSend: ImageButton
+    private lateinit var btnAttach: ImageButton
     private lateinit var tvStatus: TextView
 
     private lateinit var adapter: MessageAdapter
