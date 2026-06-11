@@ -9,6 +9,7 @@ object Prefs {
     private const val KEY_MY_NAME = "my_name"
     private const val KEY_DARK_THEME = "dark_theme"
     private const val KEY_SETUP_DONE = "setup_done"
+    private const val KEY_THEME_SET = "theme_set"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -22,10 +23,17 @@ object Prefs {
     fun isDarkTheme(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_DARK_THEME, false)
     fun setDarkTheme(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean(KEY_DARK_THEME, v).apply()
 
+    fun isThemeSet(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_THEME_SET, false)
+    fun setDarkThemeWithFlag(ctx: Context, v: Boolean) {
+        prefs(ctx).edit()
+            .putBoolean(KEY_DARK_THEME, v)
+            .putBoolean(KEY_THEME_SET, true)
+            .apply()
+    }
+
     fun isSetupDone(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_SETUP_DONE, false)
     fun setSetupDone(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean(KEY_SETUP_DONE, v).apply()
 
-    // Derive MQTT topic from secret using simple hash
     fun getTopic(ctx: Context): String {
         val secret = getSecret(ctx)
         val hash = secret.hashCode().toString(16).takeLast(8)
