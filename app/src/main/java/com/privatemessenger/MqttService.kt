@@ -32,8 +32,10 @@ class MqttService : Service() {
 
     companion object {
         const val TAG = "MqttService"
-        const val BROKER_HOST = "broker.hivemq.com"
+        const val BROKER_HOST = "mqtt.flespi.io"
         const val BROKER_PORT = 8883
+        const val BROKER_USER = "FlespiToken"
+        const val BROKER_PASS = "Jf1DpSw4Behcm7M6CJOTuPwVMho6ixnf3bLD7uEfZ9fw6dtX4KZQNmCNoTGaNQWJ"
         const val NOTIFICATION_ID = 1
         var isRunning = false
     }
@@ -78,6 +80,10 @@ class MqttService : Service() {
             .serverHost(BROKER_HOST)
             .serverPort(BROKER_PORT)
             .sslWithDefaultConfig()
+            .simpleAuth()
+                .username(BROKER_USER)
+                .password(BROKER_PASS.toByteArray())
+                .applySimpleAuth()
             .buildAsync()
 
         mqttClient?.connectWith()
@@ -86,7 +92,7 @@ class MqttService : Service() {
             ?.send()
             ?.whenComplete { _, throwable ->
                 if (throwable == null) {
-                    Log.i(TAG, "Connected, clientId=$clientId")
+                    Log.i(TAG, "Connected to flespi")
                     onConnectionChanged?.invoke(true)
                     subscribeToTopics()
                 } else {
