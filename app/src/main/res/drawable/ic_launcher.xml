@@ -4,11 +4,11 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Dark circle background -->
+    <!-- Full dark background, no circle border -->
     <path
         android:fillColor="#1A1A2E"
-        android:pathData="M54,54m-54,0a54,54 0,1 1,108 0a54,54 0,1 1,-108 0" />
-    <!-- Three white dots -->
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- Three white dots centered -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M28,54m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
