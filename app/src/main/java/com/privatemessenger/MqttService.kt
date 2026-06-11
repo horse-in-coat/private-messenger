@@ -41,12 +41,13 @@ class MqttService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
-        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        // Foreground service requires a notification by Android rules,
+        // but we make it invisible — no icon, no sound, lowest priority
+        startForeground(NOTIFICATION_ID, buildSilentNotification())
         connect()
     }
 
     override fun onBind(intent: Intent): IBinder = binder
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
@@ -55,16 +56,18 @@ class MqttService : Service() {
         super.onDestroy()
     }
 
-    private fun buildForegroundNotification(): Notification {
+    private fun buildSilentNotification(): Notification {
         val pi = PendingIntent.getActivity(
             this, 0, Intent(this, ChatActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, App.CHANNEL_SERVICE)
-            .setContentTitle("Мессенджер активен")
-            .setContentText("Ожидание сообщений...")
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentTitle("Мессенджер")
+            .setContentText("")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pi)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .build()
     }
 
@@ -104,8 +107,6 @@ class MqttService : Service() {
             ?.topicFilter(ackTopic)
             ?.callback { publish -> handleIncoming(publish, true) }
             ?.send()
-
-        Log.i(TAG, "Subscribed to: $peerTopic and $ackTopic")
     }
 
     private fun handleIncoming(publish: Mqtt3Publish, isAck: Boolean) {
@@ -140,10 +141,8 @@ class MqttService : Service() {
         val ackTopic = "${Prefs.getPeerTopic(this)}/ack"
         val payload = MqttPayload(messageId, null, null, System.currentTimeMillis(), "ack")
         try {
-            mqttClient?.publishWith()
-                ?.topic(ackTopic)
-                ?.payload(gson.toJson(payload).toByteArray())
-                ?.send()
+            mqttClient?.publishWith()?.topic(ackTopic)
+                ?.payload(gson.toJson(payload).toByteArray())?.send()
         } catch (e: Exception) {
             Log.e(TAG, "ACK error: ${e.message}")
         }
@@ -154,13 +153,9 @@ class MqttService : Service() {
         val payload = MqttPayload(id, text, imageBase64, System.currentTimeMillis(), "msg")
         val topic = Prefs.getMyTopic(this)
         try {
-            mqttClient?.publishWith()
-                ?.topic(topic)
-                ?.payload(gson.toJson(payload).toByteArray())
-                ?.send()
-                ?.whenComplete { _, throwable ->
-                    callback(throwable == null, id)
-                }
+            mqttClient?.publishWith()?.topic(topic)
+                ?.payload(gson.toJson(payload).toByteArray())?.send()
+                ?.whenComplete { _, throwable -> callback(throwable == null, id) }
         } catch (e: Exception) {
             Log.e(TAG, "Send error: ${e.message}")
             callback(false, id)
@@ -178,7 +173,7 @@ class MqttService : Service() {
         )
         val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val notification = NotificationCompat.Builder(this, App.CHANNEL_MESSAGES)
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Новое сообщение")
             .setContentText(text)
             .setAutoCancel(true)
