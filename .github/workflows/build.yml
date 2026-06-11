@@ -25,12 +25,39 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      - name: Create or restore keystore
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Using existing keystore from secrets"
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+          else
+            echo "Generating new keystore"
+            keytool -genkeypair \
+              -alias messenger \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -keystore app/release.keystore \
+              -storepass messenger123 \
+              -keypass messenger123 \
+              -dname "CN=PrivateMessenger, OU=App, O=Private, L=City, S=State, C=RU"
+            echo "====== SAVE THIS AS GITHUB SECRET 'KEYSTORE_BASE64' ======"
+            base64 -w 0 app/release.keystore
+            echo ""
+            echo "========================================================="
+          fi
+
+      - name: Build signed APK
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/app/release.keystore \
+            -Pandroid.injected.signing.store.password=messenger123 \
+            -Pandroid.injected.signing.key.alias=messenger \
+            -Pandroid.injected.signing.key.password=messenger123
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: PrivateMessenger-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: PrivateMessenger
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
