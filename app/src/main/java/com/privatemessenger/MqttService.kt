@@ -100,9 +100,9 @@ class MqttService : Service() {
                 .serverPort(BROKER_PORT)
                 .sslWithDefaultConfig()
                 .simpleAuth()
-                    .username(BROKER_USER)
-                    .password(BROKER_PASS.toByteArray())
-                    .applySimpleAuth()
+    .username(BROKER_PASS)
+    .password("".toByteArray())
+    .applySimpleAuth()
                 .buildAsync()
 
             addLog("MQTT клиент создан, отправляю CONNECT...")
