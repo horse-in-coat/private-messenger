@@ -8,6 +8,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_log"
+        android:title="Лог подключения"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_reset"
         android:title="Сбросить настройки"
         app:showAsAction="never" />
