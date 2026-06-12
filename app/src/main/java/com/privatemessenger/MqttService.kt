@@ -14,7 +14,8 @@ import com.google.gson.Gson
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
-import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.*
 
 class MqttService : Service() {
 
@@ -38,11 +39,23 @@ class MqttService : Service() {
         const val BROKER_PASS = "Jf1DpSw4Behcm7M6CJOTuPwVMho6ixnf3bLD7uEfZ9fw6dtX4KZQNmCNoTGaNQWJ"
         const val NOTIFICATION_ID = 1
         var isRunning = false
+
+        // Публичный лог для отображения в UI
+        val connectionLog = mutableListOf<String>()
+
+        fun addLog(msg: String) {
+            val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+            val line = "[$time] $msg"
+            Log.i(TAG, line)
+            connectionLog.add(line)
+            if (connectionLog.size > 100) connectionLog.removeAt(0)
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        addLog("Сервис запущен")
         startForeground(NOTIFICATION_ID, buildSilentNotification())
         connect()
     }
@@ -52,6 +65,7 @@ class MqttService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        addLog("Сервис остановлен")
         mqttClient?.disconnect()
         super.onDestroy()
     }
@@ -73,48 +87,71 @@ class MqttService : Service() {
 
     private fun connect() {
         val clientId = "pm_" + Prefs.getMyTopic(this).replace("/", "_")
+        addLog("Подключение к $BROKER_HOST:$BROKER_PORT")
+        addLog("ClientID: $clientId")
+        addLog("Топик входящих: ${Prefs.getPeerTopic(this)}")
+        addLog("Топик исходящих: ${Prefs.getMyTopic(this)}")
 
-        mqttClient = MqttClient.builder()
-            .useMqttVersion3()
-            .identifier(clientId)
-            .serverHost(BROKER_HOST)
-            .serverPort(BROKER_PORT)
-            .sslWithDefaultConfig()
-            .simpleAuth()
-                .username(BROKER_USER)
-                .password(BROKER_PASS.toByteArray())
-                .applySimpleAuth()
-            .buildAsync()
+        try {
+            mqttClient = MqttClient.builder()
+                .useMqttVersion3()
+                .identifier(clientId)
+                .serverHost(BROKER_HOST)
+                .serverPort(BROKER_PORT)
+                .sslWithDefaultConfig()
+                .simpleAuth()
+                    .username(BROKER_USER)
+                    .password(BROKER_PASS.toByteArray())
+                    .applySimpleAuth()
+                .buildAsync()
 
-        mqttClient?.connectWith()
-            ?.cleanSession(false)
-            ?.keepAlive(60)
-            ?.send()
-            ?.whenComplete { _, throwable ->
-                if (throwable == null) {
-                    Log.i(TAG, "Connected to flespi")
-                    onConnectionChanged?.invoke(true)
-                    subscribeToTopics()
-                } else {
-                    Log.e(TAG, "Connect error: ${throwable.message}")
-                    onConnectionChanged?.invoke(false)
+            addLog("MQTT клиент создан, отправляю CONNECT...")
+
+            mqttClient?.connectWith()
+                ?.cleanSession(false)
+                ?.keepAlive(60)
+                ?.send()
+                ?.whenComplete { ack, throwable ->
+                    if (throwable == null) {
+                        addLog("✓ Подключено успешно!")
+                        addLog("Session present: ${ack.isSessionPresent}")
+                        onConnectionChanged?.invoke(true)
+                        subscribeToTopics()
+                    } else {
+                        addLog("✗ Ошибка подключения: ${throwable.javaClass.simpleName}")
+                        addLog("  Причина: ${throwable.message}")
+                        throwable.cause?.let { addLog("  Причина2: ${it.message}") }
+                        onConnectionChanged?.invoke(false)
+                    }
                 }
-            }
+        } catch (e: Exception) {
+            addLog("✗ Исключение при создании клиента: ${e.message}")
+        }
     }
 
     private fun subscribeToTopics() {
         val peerTopic = Prefs.getPeerTopic(this)
         val ackTopic = "${Prefs.getMyTopic(this)}/ack"
 
+        addLog("Подписываюсь на: $peerTopic")
         mqttClient?.subscribeWith()
             ?.topicFilter(peerTopic)
             ?.callback { publish -> handleIncoming(publish, false) }
             ?.send()
+            ?.whenComplete { _, t ->
+                if (t == null) addLog("✓ Подписка на входящие OK")
+                else addLog("✗ Ошибка подписки: ${t.message}")
+            }
 
+        addLog("Подписываюсь на: $ackTopic")
         mqttClient?.subscribeWith()
             ?.topicFilter(ackTopic)
             ?.callback { publish -> handleIncoming(publish, true) }
             ?.send()
+            ?.whenComplete { _, t ->
+                if (t == null) addLog("✓ Подписка на ACK OK")
+                else addLog("✗ Ошибка подписки ACK: ${t.message}")
+            }
     }
 
     private fun handleIncoming(publish: Mqtt3Publish, isAck: Boolean) {
@@ -123,10 +160,12 @@ class MqttService : Service() {
             val payload = gson.fromJson(json, MqttPayload::class.java)
 
             if (isAck) {
+                addLog("← ACK получен: ${payload.id.take(8)}...")
                 onAckReceived?.invoke(payload.id)
                 return
             }
 
+            addLog("← Сообщение получено от собеседника")
             sendAck(payload.id)
 
             val msg = Message(
@@ -141,7 +180,7 @@ class MqttService : Service() {
             showMessageNotification(msg)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Parse error: ${e.message}")
+            addLog("✗ Ошибка разбора сообщения: ${e.message}")
         }
     }
 
@@ -152,7 +191,7 @@ class MqttService : Service() {
             mqttClient?.publishWith()?.topic(ackTopic)
                 ?.payload(gson.toJson(payload).toByteArray())?.send()
         } catch (e: Exception) {
-            Log.e(TAG, "ACK error: ${e.message}")
+            addLog("✗ Ошибка отправки ACK: ${e.message}")
         }
     }
 
@@ -160,14 +199,19 @@ class MqttService : Service() {
         val id = UUID.randomUUID().toString()
         val payload = MqttPayload(id, text, imageBase64, System.currentTimeMillis(), "msg")
         val topic = Prefs.getMyTopic(this)
+        addLog("→ Отправка сообщения в $topic")
         try {
             mqttClient?.publishWith()?.topic(topic)
                 ?.payload(gson.toJson(payload).toByteArray())
                 ?.retain(false)
                 ?.send()
-                ?.whenComplete { _, throwable -> callback(throwable == null, id) }
+                ?.whenComplete { _, throwable ->
+                    if (throwable == null) addLog("✓ Сообщение отправлено")
+                    else addLog("✗ Ошибка отправки: ${throwable.message}")
+                    callback(throwable == null, id)
+                }
         } catch (e: Exception) {
-            Log.e(TAG, "Send error: ${e.message}")
+            addLog("✗ Исключение при отправке: ${e.message}")
             callback(false, id)
         }
     }

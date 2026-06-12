@@ -274,6 +274,10 @@ class ChatActivity : AppCompatActivity() {
                 recreate()
                 true
             }
+            R.id.action_log -> {
+                startActivity(Intent(this, LogActivity::class.java))
+                true
+            }
             R.id.action_reset -> {
                 AlertDialog.Builder(this)
                     .setTitle("Сброс настроек")
