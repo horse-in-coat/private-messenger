@@ -7,7 +7,9 @@ import android.app.Service
 import android.content.Intent
 import android.media.RingtoneManager
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
@@ -26,6 +28,8 @@ class MqttService : Service() {
     private val binder = LocalBinder()
     private var mqttClient: Mqtt3AsyncClient? = null
     private val gson = Gson()
+    private val handler = Handler(Looper.getMainLooper())
+    private var reconnectAttempt = 0
 
     var onMessageReceived: ((Message) -> Unit)? = null
     var onAckReceived: ((String) -> Unit)? = null
@@ -35,12 +39,10 @@ class MqttService : Service() {
         const val TAG = "MqttService"
         const val BROKER_HOST = "mqtt.flespi.io"
         const val BROKER_PORT = 8883
-        const val BROKER_USER = "FlespiToken"
         const val BROKER_PASS = "hE485yRDByd4X5SFhw3ZpjT9kfp6pPhCX4eO7CTYdQyKMHDyTkbvOZuebUh19STo"
         const val NOTIFICATION_ID = 1
         var isRunning = false
 
-        // Публичный лог для отображения в UI
         val connectionLog = mutableListOf<String>()
 
         fun addLog(msg: String) {
@@ -65,6 +67,7 @@ class MqttService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        handler.removeCallbacksAndMessages(null)
         addLog("Сервис остановлен")
         mqttClient?.disconnect()
         super.onDestroy()
@@ -77,7 +80,7 @@ class MqttService : Service() {
         return NotificationCompat.Builder(this, App.CHANNEL_SERVICE)
             .setContentTitle("Мессенджер")
             .setContentText("")
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentIntent(pi)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
@@ -87,12 +90,13 @@ class MqttService : Service() {
 
     private fun connect() {
         val clientId = "pm_" + Prefs.getMyTopic(this).replace("/", "_")
-        addLog("Подключение к $BROKER_HOST:$BROKER_PORT")
+        addLog("Подключение к $BROKER_HOST:$BROKER_PORT (попытка ${reconnectAttempt + 1})")
         addLog("ClientID: $clientId")
         addLog("Топик входящих: ${Prefs.getPeerTopic(this)}")
         addLog("Топик исходящих: ${Prefs.getMyTopic(this)}")
 
         try {
+            mqttClient?.disconnect()
             mqttClient = MqttClient.builder()
                 .useMqttVersion3()
                 .identifier(clientId)
@@ -100,9 +104,9 @@ class MqttService : Service() {
                 .serverPort(BROKER_PORT)
                 .sslWithDefaultConfig()
                 .simpleAuth()
-    .username(BROKER_PASS)
-    .password("".toByteArray())
-    .applySimpleAuth()
+                    .username(BROKER_PASS)
+                    .password("".toByteArray())
+                    .applySimpleAuth()
                 .buildAsync()
 
             addLog("MQTT клиент создан, отправляю CONNECT...")
@@ -113,20 +117,48 @@ class MqttService : Service() {
                 ?.send()
                 ?.whenComplete { ack, throwable ->
                     if (throwable == null) {
+                        reconnectAttempt = 0
                         addLog("✓ Подключено успешно!")
                         addLog("Session present: ${ack.isSessionPresent}")
                         onConnectionChanged?.invoke(true)
                         subscribeToTopics()
+                        startConnectionWatcher()
                     } else {
-                        addLog("✗ Ошибка подключения: ${throwable.javaClass.simpleName}")
+                        addLog("✗ Ошибка: ${throwable.javaClass.simpleName}")
                         addLog("  Причина: ${throwable.message}")
                         throwable.cause?.let { addLog("  Причина2: ${it.message}") }
                         onConnectionChanged?.invoke(false)
+                        scheduleReconnect()
                     }
                 }
         } catch (e: Exception) {
-            addLog("✗ Исключение при создании клиента: ${e.message}")
+            addLog("✗ Исключение: ${e.message}")
+            scheduleReconnect()
         }
+    }
+
+    private fun scheduleReconnect() {
+        reconnectAttempt++
+        // Задержка растёт: 5с, 10с, 20с, 40с, максимум 60с
+        val delayMs = minOf(5000L * (1 shl minOf(reconnectAttempt - 1, 3)), 60000L)
+        addLog("Переподключение через ${delayMs / 1000}с...")
+        handler.postDelayed({ connect() }, delayMs)
+    }
+
+    // Проверяем соединение каждые 30 секунд
+    private fun startConnectionWatcher() {
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed(object : Runnable {
+            override fun run() {
+                if (!isConnected()) {
+                    addLog("Соединение потеряно, переподключаюсь...")
+                    onConnectionChanged?.invoke(false)
+                    connect()
+                } else {
+                    handler.postDelayed(this, 30000)
+                }
+            }
+        }, 30000)
     }
 
     private fun subscribeToTopics() {
@@ -227,7 +259,7 @@ class MqttService : Service() {
         )
         val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val notification = NotificationCompat.Builder(this, App.CHANNEL_MESSAGES)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle("Новое сообщение")
             .setContentText(text)
             .setAutoCancel(true)
