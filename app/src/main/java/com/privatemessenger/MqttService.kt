@@ -36,7 +36,7 @@ class MqttService : Service() {
         const val BROKER_HOST = "mqtt.flespi.io"
         const val BROKER_PORT = 8883
         const val BROKER_USER = "FlespiToken"
-        const val BROKER_PASS = "Jf1DpSw4Behcm7M6CJOTuPwVMho6ixnf3bLD7uEfZ9fw6dtX4KZQNmCNoTGaNQWJ"
+        const val BROKER_PASS = "hE485yRDByd4X5SFhw3ZpjT9kfp6pPhCX4eO7CTYdQyKMHDyTkbvOZuebUh19STo"
         const val NOTIFICATION_ID = 1
         var isRunning = false
 
