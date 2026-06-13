@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.hivemq.client.mqtt.MqttClient
+import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
 import java.text.SimpleDateFormat
@@ -150,20 +151,22 @@ class MqttService : Service() {
         addLog("Подписываюсь на: $peerTopic")
         mqttClient?.subscribeWith()
             ?.topicFilter(peerTopic)
+            ?.qos(MqttQos.AT_LEAST_ONCE)
             ?.callback { publish -> handleIncoming(publish, false) }
             ?.send()
             ?.whenComplete { _, t ->
-                if (t == null) addLog("✓ Подписка на входящие OK")
+                if (t == null) addLog("✓ Подписка на входящие OK (QoS=1)")
                 else addLog("✗ Ошибка подписки: ${t.message}")
             }
 
         addLog("Подписываюсь на: $ackTopic")
         mqttClient?.subscribeWith()
             ?.topicFilter(ackTopic)
+            ?.qos(MqttQos.AT_LEAST_ONCE)
             ?.callback { publish -> handleIncoming(publish, true) }
             ?.send()
             ?.whenComplete { _, t ->
-                if (t == null) addLog("✓ Подписка на ACK OK")
+                if (t == null) addLog("✓ Подписка на ACK OK (QoS=1)")
                 else addLog("✗ Ошибка подписки ACK: ${t.message}")
             }
     }
@@ -203,6 +206,7 @@ class MqttService : Service() {
         val payload = MqttPayload(messageId, null, null, System.currentTimeMillis(), "ack")
         try {
             mqttClient?.publishWith()?.topic(ackTopic)
+                ?.qos(MqttQos.AT_LEAST_ONCE)
                 ?.payload(gson.toJson(payload).toByteArray())?.send()
         } catch (e: Exception) {
             addLog("✗ Ошибка отправки ACK: ${e.message}")
@@ -218,6 +222,7 @@ class MqttService : Service() {
             mqttClient?.publishWith()?.topic(topic)
                 ?.payload(gson.toJson(payload).toByteArray())
                 ?.retain(false)
+                ?.qos(MqttQos.AT_LEAST_ONCE)
                 ?.send()
                 ?.whenComplete { _, throwable ->
                     if (throwable == null) addLog("✓ Сообщение отправлено")
