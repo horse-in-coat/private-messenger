@@ -31,6 +31,7 @@ class MqttService : Service() {
     private val gson = Gson()
     private val handler = Handler(Looper.getMainLooper())
     private var reconnectAttempt = 0
+    private var isReconnecting = false
 
     var onMessageReceived: ((Message) -> Unit)? = null
     var onAckReceived: ((String) -> Unit)? = null
@@ -70,7 +71,7 @@ class MqttService : Service() {
         isRunning = false
         handler.removeCallbacksAndMessages(null)
         addLog("Сервис остановлен")
-        mqttClient?.disconnect()
+        try { mqttClient?.disconnect() } catch (e: Exception) {}
         super.onDestroy()
     }
 
@@ -90,6 +91,9 @@ class MqttService : Service() {
     }
 
     private fun connect() {
+        if (isReconnecting) return
+        isReconnecting = true
+
         val clientId = "pm_" + Prefs.getMyTopic(this).replace("/", "_")
         addLog("Подключение к $BROKER_HOST:$BROKER_PORT (попытка ${reconnectAttempt + 1})")
         addLog("ClientID: $clientId")
@@ -97,7 +101,8 @@ class MqttService : Service() {
         addLog("Топик исходящих: ${Prefs.getMyTopic(this)}")
 
         try {
-            mqttClient?.disconnect()
+            try { mqttClient?.disconnect() } catch (e: Exception) {}
+
             mqttClient = MqttClient.builder()
                 .useMqttVersion3()
                 .identifier(clientId)
@@ -108,6 +113,16 @@ class MqttService : Service() {
                     .username(BROKER_PASS)
                     .password("".toByteArray())
                     .applySimpleAuth()
+                .addDisconnectedListener { context ->
+                    addLog("⚡ Соединение разорвано: ${context.cause.message}")
+                    onConnectionChanged?.invoke(false)
+                    if (isRunning) {
+                        handler.postDelayed({
+                            isReconnecting = false
+                            scheduleReconnect()
+                        }, 1000)
+                    }
+                }
                 .buildAsync()
 
             addLog("MQTT клиент создан, отправляю CONNECT...")
@@ -117,6 +132,7 @@ class MqttService : Service() {
                 ?.keepAlive(60)
                 ?.send()
                 ?.whenComplete { ack, throwable ->
+                    isReconnecting = false
                     if (throwable == null) {
                         reconnectAttempt = 0
                         addLog("✓ Подключено успешно!")
@@ -132,6 +148,7 @@ class MqttService : Service() {
                     }
                 }
         } catch (e: Exception) {
+            isReconnecting = false
             addLog("✗ Исключение: ${e.message}")
             scheduleReconnect()
         }
@@ -141,7 +158,10 @@ class MqttService : Service() {
         reconnectAttempt++
         val delayMs = minOf(5000L * (1 shl minOf(reconnectAttempt - 1, 3)), 60000L)
         addLog("Переподключение через ${delayMs / 1000}с...")
-        handler.postDelayed({ connect() }, delayMs)
+        handler.postDelayed({
+            isReconnecting = false
+            connect()
+        }, delayMs)
     }
 
     private fun subscribeToTopics() {
