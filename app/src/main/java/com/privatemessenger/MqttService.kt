@@ -122,7 +122,6 @@ class MqttService : Service() {
                         addLog("Session present: ${ack.isSessionPresent}")
                         onConnectionChanged?.invoke(true)
                         subscribeToTopics()
-                        startConnectionWatcher()
                     } else {
                         addLog("✗ Ошибка: ${throwable.javaClass.simpleName}")
                         addLog("  Причина: ${throwable.message}")
@@ -139,26 +138,9 @@ class MqttService : Service() {
 
     private fun scheduleReconnect() {
         reconnectAttempt++
-        // Задержка растёт: 5с, 10с, 20с, 40с, максимум 60с
         val delayMs = minOf(5000L * (1 shl minOf(reconnectAttempt - 1, 3)), 60000L)
         addLog("Переподключение через ${delayMs / 1000}с...")
         handler.postDelayed({ connect() }, delayMs)
-    }
-
-    // Проверяем соединение каждые 30 секунд
-    private fun startConnectionWatcher() {
-        handler.removeCallbacksAndMessages(null)
-        handler.postDelayed(object : Runnable {
-            override fun run() {
-                if (!isConnected()) {
-                    addLog("Соединение потеряно, переподключаюсь...")
-                    onConnectionChanged?.invoke(false)
-                    connect()
-                } else {
-                    handler.postDelayed(this, 30000)
-                }
-            }
-        }, 30000)
     }
 
     private fun subscribeToTopics() {
