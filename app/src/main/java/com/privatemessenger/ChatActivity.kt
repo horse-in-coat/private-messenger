@@ -83,6 +83,7 @@ class ChatActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
 
         setupRecycler()
+        loadMessages()
 
         btnSend.setOnClickListener {
             val text = etMessage.text.toString().trim()
@@ -116,12 +117,28 @@ class ChatActivity : AppCompatActivity() {
         rvMessages.adapter = adapter
     }
 
+    private fun loadMessages() {
+        val saved = Prefs.loadMessages(this)
+        messages.addAll(saved)
+        adapter.notifyDataSetChanged()
+        if (messages.isNotEmpty()) {
+            rvMessages.scrollToPosition(messages.size - 1)
+        }
+    }
+
+    private fun saveMessages() {
+        // Сохраняем последние 100 сообщений
+        val toSave = if (messages.size > 100) messages.takeLast(100) else messages
+        Prefs.saveMessages(this, toSave)
+    }
+
     private fun setupServiceCallbacks() {
         mqttService?.onMessageReceived = { msg ->
             runOnUiThread {
                 messages.add(msg)
                 adapter.notifyItemInserted(messages.size - 1)
                 rvMessages.scrollToPosition(messages.size - 1)
+                saveMessages()
             }
         }
         mqttService?.onAckReceived = { msgId ->
@@ -130,6 +147,7 @@ class ChatActivity : AppCompatActivity() {
                 if (idx >= 0) {
                     messages[idx] = messages[idx].copy(status = Message.Status.DELIVERED)
                     adapter.notifyItemChanged(idx)
+                    saveMessages()
                 }
             }
         }
@@ -165,6 +183,7 @@ class ChatActivity : AppCompatActivity() {
                         status = if (success) Message.Status.SENT else Message.Status.SENDING
                     )
                     adapter.notifyItemChanged(idx)
+                    saveMessages()
                 }
             }
         }
@@ -198,6 +217,7 @@ class ChatActivity : AppCompatActivity() {
                                 status = if (success) Message.Status.SENT else Message.Status.SENDING
                             )
                             adapter.notifyItemChanged(idx)
+                            saveMessages()
                         }
                     }
                 }
@@ -283,6 +303,7 @@ class ChatActivity : AppCompatActivity() {
                     .setTitle("Сброс настроек")
                     .setMessage("Вернуться к начальному экрану?")
                     .setPositiveButton("Да") { _, _ ->
+                        Prefs.clearMessages(this)
                         Prefs.setSetupDone(this, false)
                         startActivity(Intent(this, SetupActivity::class.java))
                         finish()
