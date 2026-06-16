@@ -2,6 +2,8 @@ package com.privatemessenger
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import java.util.UUID
 
 object Prefs {
@@ -12,6 +14,7 @@ object Prefs {
     private const val KEY_SETUP_DONE = "setup_done"
     private const val KEY_THEME_SET = "theme_set"
     private const val KEY_DEVICE_ID = "device_id"
+    private const val KEY_MESSAGES = "messages"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -36,7 +39,6 @@ object Prefs {
     fun isSetupDone(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_SETUP_DONE, false)
     fun setSetupDone(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean(KEY_SETUP_DONE, v).apply()
 
-    // Уникальный ID этого устройства — генерируется один раз при первой установке
     fun getDeviceId(ctx: Context): String {
         var id = prefs(ctx).getString(KEY_DEVICE_ID, null)
         if (id == null) {
@@ -52,16 +54,29 @@ object Prefs {
         return "pm_${hash}"
     }
 
-    // Топик для отправки — содержит уникальный ID этого устройства
     fun getMyTopic(ctx: Context): String = "${getTopic(ctx)}/${getDeviceId(ctx)}"
-
-    // Топик для подписки — wildcard на все устройства в группе
     fun getGroupWildcardTopic(ctx: Context): String = "${getTopic(ctx)}/+"
-
-    // Топик для ACK конкретного устройства
     fun getAckTopic(ctx: Context, deviceId: String): String = "${getTopic(ctx)}/ack/${deviceId}"
-
     fun getMyAckTopic(ctx: Context): String = getAckTopic(ctx, getDeviceId(ctx))
-
     fun getAckWildcardTopic(ctx: Context): String = "${getTopic(ctx)}/ack/+"
+
+    // Сохранение истории сообщений
+    fun saveMessages(ctx: Context, messages: List<Message>) {
+        val json = Gson().toJson(messages)
+        prefs(ctx).edit().putString(KEY_MESSAGES, json).apply()
+    }
+
+    fun loadMessages(ctx: Context): MutableList<Message> {
+        val json = prefs(ctx).getString(KEY_MESSAGES, null) ?: return mutableListOf()
+        return try {
+            val type = object : TypeToken<MutableList<Message>>() {}.type
+            Gson().fromJson(json, type) ?: mutableListOf()
+        } catch (e: Exception) {
+            mutableListOf()
+        }
+    }
+
+    fun clearMessages(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_MESSAGES).apply()
+    }
 }
