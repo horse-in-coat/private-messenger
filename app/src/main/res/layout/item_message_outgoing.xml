@@ -17,7 +17,7 @@
         android:padding="10dp"
         android:maxWidth="260dp">
 
-        <TextView
+        <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/tvText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -40,14 +40,14 @@
             android:layout_gravity="end"
             android:layout_marginTop="4dp">
 
-            <TextView
+            <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/tvTime"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="11sp"
                 android:textColor="#CCFFFFFF" />
 
-            <TextView
+            <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/tvStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
