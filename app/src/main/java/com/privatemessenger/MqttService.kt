@@ -94,11 +94,15 @@ class MqttService : Service() {
         if (isReconnecting) return
         isReconnecting = true
 
-        val clientId = "pm_" + Prefs.getMyTopic(this).replace("/", "_")
+        // ClientID на основе уникального ID устройства — гарантированно разный на каждом устройстве
+        val deviceId = Prefs.getDeviceId(this)
+        val clientId = "pm_$deviceId"
+
         addLog("Подключение к $BROKER_HOST:$BROKER_PORT (попытка ${reconnectAttempt + 1})")
         addLog("ClientID: $clientId")
-        addLog("Топик входящих: ${Prefs.getPeerTopic(this)}")
-        addLog("Топик исходящих: ${Prefs.getMyTopic(this)}")
+        addLog("Мой ID устройства: $deviceId")
+        addLog("Мой топик: ${Prefs.getMyTopic(this)}")
+        addLog("Подписка (группа): ${Prefs.getGroupWildcardTopic(this)}")
 
         try {
             try { mqttClient?.disconnect() } catch (e: Exception) {}
@@ -165,17 +169,17 @@ class MqttService : Service() {
     }
 
     private fun subscribeToTopics() {
-        val peerTopic = Prefs.getPeerTopic(this)
-        val ackTopic = "${Prefs.getMyTopic(this)}/ack"
+        val groupTopic = Prefs.getGroupWildcardTopic(this)
+        val ackTopic = Prefs.getAckWildcardTopic(this)
 
-        addLog("Подписываюсь на: $peerTopic")
+        addLog("Подписываюсь на: $groupTopic")
         mqttClient?.subscribeWith()
-            ?.topicFilter(peerTopic)
+            ?.topicFilter(groupTopic)
             ?.qos(MqttQos.AT_LEAST_ONCE)
             ?.callback { publish -> handleIncoming(publish, false) }
             ?.send()
             ?.whenComplete { _, t ->
-                if (t == null) addLog("✓ Подписка на входящие OK (QoS=1)")
+                if (t == null) addLog("✓ Подписка на группу OK (QoS=1)")
                 else addLog("✗ Ошибка подписки: ${t.message}")
             }
 
@@ -191,19 +195,30 @@ class MqttService : Service() {
             }
     }
 
-    private fun handleIncoming(publish: Mqtt3Publish, isAck: Boolean) {
+    private fun handleIncoming(publish: Mqtt3Publish, isAckTopic: Boolean) {
         try {
+            val topic = publish.topic.toString()
             val json = String(publish.payloadAsBytes)
             val payload = gson.fromJson(json, MqttPayload::class.java)
+            val myDeviceId = Prefs.getDeviceId(this)
 
-            if (isAck) {
+            if (isAckTopic) {
+                // ACK адресован конкретному устройству — проверяем что это мы
+                val targetId = topic.substringAfterLast("/")
+                if (targetId != myDeviceId) return // ACK не для нас
                 addLog("← ACK получен: ${payload.id.take(8)}...")
                 onAckReceived?.invoke(payload.id)
                 return
             }
 
-            addLog("← Сообщение получено от собеседника")
-            sendAck(payload.id)
+            // Сообщение из группового топика — игнорируем своё же
+            val senderId = topic.substringAfterLast("/")
+            if (senderId == myDeviceId) {
+                return // это наше собственное сообщение, эхо от подписки
+            }
+
+            addLog("← Сообщение получено от собеседника (ID: $senderId)")
+            sendAck(payload.id, senderId)
 
             val msg = Message(
                 id = payload.id,
@@ -221,8 +236,8 @@ class MqttService : Service() {
         }
     }
 
-    private fun sendAck(messageId: String) {
-        val ackTopic = "${Prefs.getPeerTopic(this)}/ack"
+    private fun sendAck(messageId: String, toDeviceId: String) {
+        val ackTopic = Prefs.getAckTopic(this, toDeviceId)
         val payload = MqttPayload(messageId, null, null, System.currentTimeMillis(), "ack")
         try {
             mqttClient?.publishWith()?.topic(ackTopic)
