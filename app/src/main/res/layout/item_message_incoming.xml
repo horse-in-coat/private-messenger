@@ -18,6 +18,15 @@
         android:maxWidth="260dp">
 
         <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/tvSenderName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#1976D2"
+            android:layout_marginBottom="2dp" />
+
+        <androidx.appcompat.widget.AppCompatTextView
             android:id="@+id/tvText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -40,6 +49,5 @@
             android:layout_gravity="end"
             android:textSize="11sp"
             android:textColor="#757575" />
-
     </LinearLayout>
 </LinearLayout>
