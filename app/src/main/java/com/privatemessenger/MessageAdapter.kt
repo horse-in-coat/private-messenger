@@ -7,7 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
-import android.widget.TextView
+import androidx.appcompat.widget.AppCompatTextView
 import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,9 +46,9 @@ class MessageAdapter(private val messages: List<Message>) :
     override fun getItemCount() = messages.size
 
     inner class OutgoingViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val tvText: TextView = view.findViewById(R.id.tvText)
-        private val tvTime: TextView = view.findViewById(R.id.tvTime)
-        private val tvStatus: TextView = view.findViewById(R.id.tvStatus)
+        private val tvText: AppCompatTextView = view.findViewById(R.id.tvText)
+        private val tvTime: AppCompatTextView = view.findViewById(R.id.tvTime)
+        private val tvStatus: AppCompatTextView = view.findViewById(R.id.tvStatus)
         private val ivImage: ImageView = view.findViewById(R.id.ivImage)
 
         fun bind(msg: Message) {
@@ -72,11 +72,13 @@ class MessageAdapter(private val messages: List<Message>) :
     }
 
     inner class IncomingViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val tvText: TextView = view.findViewById(R.id.tvText)
-        private val tvTime: TextView = view.findViewById(R.id.tvTime)
+        private val tvSenderName: AppCompatTextView = view.findViewById(R.id.tvSenderName)
+        private val tvText: AppCompatTextView = view.findViewById(R.id.tvText)
+        private val tvTime: AppCompatTextView = view.findViewById(R.id.tvTime)
         private val ivImage: ImageView = view.findViewById(R.id.ivImage)
 
         fun bind(msg: Message) {
+            tvSenderName.text = msg.senderName
             if (msg.isImage) {
                 tvText.visibility = View.GONE
                 ivImage.visibility = View.VISIBLE
