@@ -127,7 +127,6 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun saveMessages() {
-        // Сохраняем последние 100 сообщений
         val toSave = if (messages.size > 100) messages.takeLast(100) else messages
         Prefs.saveMessages(this, toSave)
     }
@@ -169,7 +168,15 @@ class ChatActivity : AppCompatActivity() {
 
     private fun sendTextMessage(text: String) {
         val tempId = "temp_${System.currentTimeMillis()}"
-        val tempMsg = Message(tempId, text, null, System.currentTimeMillis(), true, Message.Status.SENDING)
+        val tempMsg = Message(
+            id = tempId,
+            text = text,
+            imageBase64 = null,
+            timestamp = System.currentTimeMillis(),
+            isOutgoing = true,
+            senderName = "",
+            status = Message.Status.SENDING
+        )
         messages.add(tempMsg)
         adapter.notifyItemInserted(messages.size - 1)
         rvMessages.scrollToPosition(messages.size - 1)
@@ -202,7 +209,15 @@ class ChatActivity : AppCompatActivity() {
                 val base64 = Base64.encodeToString(out.toByteArray(), Base64.DEFAULT)
 
                 val tempId = "temp_${System.currentTimeMillis()}"
-                val tempMsg = Message(tempId, null, base64, System.currentTimeMillis(), true, Message.Status.SENDING)
+                val tempMsg = Message(
+                    id = tempId,
+                    text = null,
+                    imageBase64 = base64,
+                    timestamp = System.currentTimeMillis(),
+                    isOutgoing = true,
+                    senderName = "",
+                    status = Message.Status.SENDING
+                )
                 runOnUiThread {
                     messages.add(tempMsg)
                     adapter.notifyItemInserted(messages.size - 1)
