@@ -94,7 +94,6 @@ class MqttService : Service() {
         if (isReconnecting) return
         isReconnecting = true
 
-        // ClientID на основе уникального ID устройства — гарантированно разный на каждом устройстве
         val deviceId = Prefs.getDeviceId(this)
         val clientId = "pm_$deviceId"
 
@@ -203,21 +202,17 @@ class MqttService : Service() {
             val myDeviceId = Prefs.getDeviceId(this)
 
             if (isAckTopic) {
-                // ACK адресован конкретному устройству — проверяем что это мы
                 val targetId = topic.substringAfterLast("/")
-                if (targetId != myDeviceId) return // ACK не для нас
+                if (targetId != myDeviceId) return
                 addLog("← ACK получен: ${payload.id.take(8)}...")
                 onAckReceived?.invoke(payload.id)
                 return
             }
 
-            // Сообщение из группового топика — игнорируем своё же
             val senderId = topic.substringAfterLast("/")
-            if (senderId == myDeviceId) {
-                return // это наше собственное сообщение, эхо от подписки
-            }
+            if (senderId == myDeviceId) return
 
-            addLog("← Сообщение получено от собеседника (ID: $senderId)")
+            addLog("← Сообщение от: ${payload.senderName} (ID: $senderId)")
             sendAck(payload.id, senderId)
 
             val msg = Message(
@@ -226,6 +221,7 @@ class MqttService : Service() {
                 imageBase64 = payload.imageBase64,
                 timestamp = payload.timestamp,
                 isOutgoing = false,
+                senderName = payload.senderName,
                 status = Message.Status.DELIVERED
             )
             onMessageReceived?.invoke(msg)
@@ -250,7 +246,14 @@ class MqttService : Service() {
 
     fun sendMessage(text: String?, imageBase64: String?, callback: (Boolean, String) -> Unit) {
         val id = UUID.randomUUID().toString()
-        val payload = MqttPayload(id, text, imageBase64, System.currentTimeMillis(), "msg")
+        val payload = MqttPayload(
+            id = id,
+            text = text,
+            imageBase64 = imageBase64,
+            timestamp = System.currentTimeMillis(),
+            type = "msg",
+            senderName = Prefs.getMyName(this)
+        )
         val topic = Prefs.getMyTopic(this)
         addLog("→ Отправка сообщения в $topic")
         try {
@@ -274,6 +277,7 @@ class MqttService : Service() {
 
     private fun showMessageNotification(msg: Message) {
         val text = if (msg.isImage) "📷 Фото" else msg.text ?: ""
+        val title = if (msg.senderName.isNotEmpty()) msg.senderName else "Новое сообщение"
         val pi = PendingIntent.getActivity(
             this, 0,
             Intent(this, ChatActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
@@ -282,7 +286,7 @@ class MqttService : Service() {
         val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val notification = NotificationCompat.Builder(this, App.CHANNEL_MESSAGES)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle("Новое сообщение")
+            .setContentTitle(title)
             .setContentText(text)
             .setAutoCancel(true)
             .setSound(sound)
