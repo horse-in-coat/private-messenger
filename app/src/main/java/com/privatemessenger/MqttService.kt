@@ -10,6 +10,7 @@ import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
@@ -32,6 +33,7 @@ class MqttService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var reconnectAttempt = 0
     private var isReconnecting = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     var onMessageReceived: ((Message) -> Unit)? = null
     var onAckReceived: ((String) -> Unit)? = null
@@ -43,6 +45,8 @@ class MqttService : Service() {
         const val BROKER_PORT = 8883
         const val BROKER_PASS = "hE485yRDByd4X5SFhw3ZpjT9kfp6pPhCX4eO7CTYdQyKMHDyTkbvOZuebUh19STo"
         const val NOTIFICATION_ID = 1
+        // keepAlive 300с — телефон просыпается раз в 5 минут вместо раз в минуту
+        const val KEEP_ALIVE_SECONDS = 300
         var isRunning = false
 
         val connectionLog = mutableListOf<String>()
@@ -61,6 +65,7 @@ class MqttService : Service() {
         isRunning = true
         addLog("Сервис запущен")
         startForeground(NOTIFICATION_ID, buildSilentNotification())
+        acquireWakeLock()
         connect()
     }
 
@@ -71,8 +76,25 @@ class MqttService : Service() {
         isRunning = false
         handler.removeCallbacksAndMessages(null)
         addLog("Сервис остановлен")
+        releaseWakeLock()
         try { mqttClient?.disconnect() } catch (e: Exception) {}
         super.onDestroy()
+    }
+
+    private fun acquireWakeLock() {
+        val pm = getSystemService(PowerManager::class.java)
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "PrivateMessenger::MqttWakeLock"
+        ).apply {
+            setReferenceCounted(false)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (e: Exception) {}
     }
 
     private fun buildSilentNotification(): Notification {
@@ -99,9 +121,7 @@ class MqttService : Service() {
 
         addLog("Подключение к $BROKER_HOST:$BROKER_PORT (попытка ${reconnectAttempt + 1})")
         addLog("ClientID: $clientId")
-        addLog("Мой ID устройства: $deviceId")
         addLog("Мой топик: ${Prefs.getMyTopic(this)}")
-        addLog("Подписка (группа): ${Prefs.getGroupWildcardTopic(this)}")
 
         try {
             try { mqttClient?.disconnect() } catch (e: Exception) {}
@@ -132,20 +152,18 @@ class MqttService : Service() {
 
             mqttClient?.connectWith()
                 ?.cleanSession(false)
-                ?.keepAlive(60)
+                ?.keepAlive(KEEP_ALIVE_SECONDS)
                 ?.send()
                 ?.whenComplete { ack, throwable ->
                     isReconnecting = false
                     if (throwable == null) {
                         reconnectAttempt = 0
-                        addLog("✓ Подключено успешно!")
+                        addLog("✓ Подключено! keepAlive=${KEEP_ALIVE_SECONDS}с")
                         addLog("Session present: ${ack.isSessionPresent}")
                         onConnectionChanged?.invoke(true)
                         subscribeToTopics()
                     } else {
-                        addLog("✗ Ошибка: ${throwable.javaClass.simpleName}")
-                        addLog("  Причина: ${throwable.message}")
-                        throwable.cause?.let { addLog("  Причина2: ${it.message}") }
+                        addLog("✗ Ошибка: ${throwable.javaClass.simpleName}: ${throwable.message}")
                         onConnectionChanged?.invoke(false)
                         scheduleReconnect()
                     }
@@ -159,7 +177,8 @@ class MqttService : Service() {
 
     private fun scheduleReconnect() {
         reconnectAttempt++
-        val delayMs = minOf(5000L * (1 shl minOf(reconnectAttempt - 1, 3)), 60000L)
+        // Задержка: 15с, 30с, 60с, максимум 120с — менее агрессивно чем раньше
+        val delayMs = minOf(15000L * (1 shl minOf(reconnectAttempt - 1, 3)), 120000L)
         addLog("Переподключение через ${delayMs / 1000}с...")
         handler.postDelayed({
             isReconnecting = false
@@ -171,30 +190,31 @@ class MqttService : Service() {
         val groupTopic = Prefs.getGroupWildcardTopic(this)
         val ackTopic = Prefs.getAckWildcardTopic(this)
 
-        addLog("Подписываюсь на: $groupTopic")
         mqttClient?.subscribeWith()
             ?.topicFilter(groupTopic)
             ?.qos(MqttQos.AT_LEAST_ONCE)
             ?.callback { publish -> handleIncoming(publish, false) }
             ?.send()
             ?.whenComplete { _, t ->
-                if (t == null) addLog("✓ Подписка на группу OK (QoS=1)")
+                if (t == null) addLog("✓ Подписка на группу OK")
                 else addLog("✗ Ошибка подписки: ${t.message}")
             }
 
-        addLog("Подписываюсь на: $ackTopic")
         mqttClient?.subscribeWith()
             ?.topicFilter(ackTopic)
             ?.qos(MqttQos.AT_LEAST_ONCE)
             ?.callback { publish -> handleIncoming(publish, true) }
             ?.send()
             ?.whenComplete { _, t ->
-                if (t == null) addLog("✓ Подписка на ACK OK (QoS=1)")
+                if (t == null) addLog("✓ Подписка на ACK OK")
                 else addLog("✗ Ошибка подписки ACK: ${t.message}")
             }
     }
 
     private fun handleIncoming(publish: Mqtt3Publish, isAckTopic: Boolean) {
+        // Захватываем WakeLock на время обработки сообщения
+        wakeLock?.acquire(10000L) // максимум 10 секунд
+
         try {
             val topic = publish.topic.toString()
             val json = String(publish.payloadAsBytes)
@@ -204,7 +224,7 @@ class MqttService : Service() {
             if (isAckTopic) {
                 val targetId = topic.substringAfterLast("/")
                 if (targetId != myDeviceId) return
-                addLog("← ACK получен: ${payload.id.take(8)}...")
+                addLog("← ACK: ${payload.id.take(8)}...")
                 onAckReceived?.invoke(payload.id)
                 return
             }
@@ -212,7 +232,7 @@ class MqttService : Service() {
             val senderId = topic.substringAfterLast("/")
             if (senderId == myDeviceId) return
 
-            addLog("← Сообщение от: ${payload.senderName} (ID: $senderId)")
+            addLog("← Сообщение от: ${payload.senderName}")
             sendAck(payload.id, senderId)
 
             val msg = Message(
@@ -228,7 +248,9 @@ class MqttService : Service() {
             showMessageNotification(msg)
 
         } catch (e: Exception) {
-            addLog("✗ Ошибка разбора сообщения: ${e.message}")
+            addLog("✗ Ошибка разбора: ${e.message}")
+        } finally {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
         }
     }
 
@@ -240,7 +262,7 @@ class MqttService : Service() {
                 ?.qos(MqttQos.AT_LEAST_ONCE)
                 ?.payload(gson.toJson(payload).toByteArray())?.send()
         } catch (e: Exception) {
-            addLog("✗ Ошибка отправки ACK: ${e.message}")
+            addLog("✗ Ошибка ACK: ${e.message}")
         }
     }
 
@@ -255,7 +277,7 @@ class MqttService : Service() {
             senderName = Prefs.getMyName(this)
         )
         val topic = Prefs.getMyTopic(this)
-        addLog("→ Отправка сообщения в $topic")
+        addLog("→ Отправка в $topic")
         try {
             mqttClient?.publishWith()?.topic(topic)
                 ?.payload(gson.toJson(payload).toByteArray())
@@ -263,7 +285,7 @@ class MqttService : Service() {
                 ?.qos(MqttQos.AT_LEAST_ONCE)
                 ?.send()
                 ?.whenComplete { _, throwable ->
-                    if (throwable == null) addLog("✓ Сообщение отправлено")
+                    if (throwable == null) addLog("✓ Отправлено")
                     else addLog("✗ Ошибка отправки: ${throwable.message}")
                     callback(throwable == null, id)
                 }
