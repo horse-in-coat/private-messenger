@@ -15,7 +15,7 @@ object UpdateChecker {
     private const val API_URL = "https://api.github.com/repos/$REPO/releases/latest"
 
     // Текущая версия приложения — обновляй вручную при каждом релизе
-    const val CURRENT_VERSION = "v1.1"
+    const val CURRENT_VERSION = "v1.2"
 
     data class UpdateInfo(val version: String, val apkUrl: String, val notes: String)
 
