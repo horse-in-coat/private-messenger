@@ -96,8 +96,8 @@ class ChatActivity : AppCompatActivity() {
         btnAttach.setOnClickListener { openGallery() }
 
         requestNotificationPermission()
-startAndBindService()
-checkForUpdates()
+        startAndBindService()
+        checkForUpdates()
     }
 
     private fun applyTheme() {
@@ -328,6 +328,24 @@ checkForUpdates()
                 true
             }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun checkForUpdates() {
+        UpdateChecker.checkForUpdate { update ->
+            if (update != null) {
+                runOnUiThread {
+                    AlertDialog.Builder(this)
+                        .setTitle("Доступно обновление ${update.version}")
+                        .setMessage(if (update.notes.isNotBlank()) update.notes else "Новая версия приложения готова к установке")
+                        .setPositiveButton("Обновить") { _, _ ->
+                            Toast.makeText(this, "Загрузка обновления...", Toast.LENGTH_SHORT).show()
+                            UpdateChecker.downloadAndInstall(this, update.apkUrl, update.version)
+                        }
+                        .setNegativeButton("Позже", null)
+                        .show()
+                }
+            }
         }
     }
 }
