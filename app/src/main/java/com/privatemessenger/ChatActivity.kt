@@ -96,7 +96,8 @@ class ChatActivity : AppCompatActivity() {
         btnAttach.setOnClickListener { openGallery() }
 
         requestNotificationPermission()
-        startAndBindService()
+startAndBindService()
+checkForUpdates()
     }
 
     private fun applyTheme() {
